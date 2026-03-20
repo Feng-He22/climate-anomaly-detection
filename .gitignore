@@ -10,7 +10,6 @@ env/
 
 data/raw/*
 !data/raw/.gitkeep
-!data/raw/hadukgrid_60km_last10y/
 data/processed/*
 !data/processed/.gitkeep
 data/synthetic/*
