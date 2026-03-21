@@ -38,6 +38,7 @@ class LSTMAutoencoder:
         self.config = config
         self.model = None
         self.history = None
+        self.output_prefix = "default"
 
     def build_model(self, input_shape: tuple[int, int]):
         layers = _import_tensorflow()
@@ -89,7 +90,7 @@ class LSTMAutoencoder:
                 verbose=1,
             ),
             layers["ModelCheckpoint"](
-                filepath=str(self.config.get_output_path("models", "best_lstm_autoencoder.h5")),
+                filepath=str(self.config.get_output_path("models", f"{self.output_prefix}_best_lstm_autoencoder.h5")),
                 monitor="val_loss",
                 save_best_only=True,
                 verbose=1,

@@ -12,8 +12,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--variable",
         default="tasmax",
-        choices=("rainfall", "tasmax", "tasmin"),
-        help="Climate variable to analyse.",
+        choices=("all", "rainfall", "tasmax", "tasmin"),
+        help="Climate variable to analyse, or 'all' to process rainfall, tasmax, and tasmin.",
     )
     parser.add_argument(
         "--max-files",
@@ -47,19 +47,34 @@ def main() -> int:
         config.MAX_FILES_TO_LOAD = args.max_files
 
     system = ClimateAnomalyDetectionSystem(config)
-    outputs = system.run_pipeline(
-        variable_name=args.variable,
-        allow_synthetic=not args.no_synthetic_fallback,
-        make_plots=not args.no_plots,
-        run_lstm=not args.skip_lstm,
-    )
+    if args.variable == "all":
+        outputs = system.run_all_variables(
+            allow_synthetic=not args.no_synthetic_fallback,
+            make_plots=not args.no_plots,
+            run_lstm=not args.skip_lstm,
+        )
+        for output in outputs["outputs"]:
+            print(f"[{output['variable']}] Results saved to: {output['results_path']}")
+            print(f"[{output['variable']}] Metrics saved to: {output['metrics_path']}")
+            print(f"[{output['variable']}] Summary saved to: {output['summary_path']}")
+            for note in output["notes"]:
+                print(f"[{output['variable']}] Note: {note}")
+        print(f"Aggregate metrics saved to: {outputs['aggregate_metrics_path']}")
+        print(f"Aggregate summary saved to: {outputs['aggregate_summary_path']}")
+    else:
+        outputs = system.run_pipeline(
+            variable_name=args.variable,
+            allow_synthetic=not args.no_synthetic_fallback,
+            make_plots=not args.no_plots,
+            run_lstm=not args.skip_lstm,
+        )
 
-    print(f"Results saved to: {outputs['results_path']}")
-    print(f"Metrics saved to: {outputs['metrics_path']}")
-    print(f"Summary saved to: {outputs['summary_path']}")
+        print(f"Results saved to: {outputs['results_path']}")
+        print(f"Metrics saved to: {outputs['metrics_path']}")
+        print(f"Summary saved to: {outputs['summary_path']}")
 
-    for note in outputs["notes"]:
-        print(f"Note: {note}")
+        for note in outputs["notes"]:
+            print(f"Note: {note}")
 
     return 0
 
