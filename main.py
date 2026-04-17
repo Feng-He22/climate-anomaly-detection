@@ -22,6 +22,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum number of NetCDF files to load per variable.",
     )
     parser.add_argument(
+        "--data-backend",
+        default="standard",
+        choices=("standard", "dask"),
+        help="Dataset loading backend. 'dask' enables chunked lazy NetCDF loading.",
+    )
+    parser.add_argument(
         "--skip-lstm",
         action="store_true",
         help="Skip the LSTM autoencoder and run Isolation Forest only.",
@@ -36,6 +42,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Fail instead of generating synthetic data when raw data cannot be loaded.",
     )
+    parser.add_argument(
+        "--run-fairness-ablation",
+        action="store_true",
+        help="Run the synthetic tasmax fairness ablation package and save the result tables.",
+    )
+    parser.add_argument(
+        "--run-event-alignment",
+        action="store_true",
+        help="Run external event-window alignment for the real tasmax results and save event-aligned metrics.",
+    )
     return parser
 
 
@@ -45,8 +61,24 @@ def main() -> int:
     config = AppConfig()
     if args.max_files is not None:
         config.MAX_FILES_TO_LOAD = args.max_files
+    config.DATA_BACKEND = args.data_backend
 
     system = ClimateAnomalyDetectionSystem(config)
+    if args.run_fairness_ablation:
+        outputs = system.run_fairness_ablation("tasmax")
+        print(f"Window sweep saved to: {outputs['window_sweep_path']}")
+        print(f"IF feature ablation saved to: {outputs['if_feature_ablation_path']}")
+        print(f"LSTM seed runs saved to: {outputs['lstm_seed_runs_path']}")
+        print(f"LSTM seed summary saved to: {outputs['lstm_seed_summary_path']}")
+        print(f"Ablation summary saved to: {outputs['summary_path']}")
+        return 0
+    if args.run_event_alignment:
+        outputs = system.run_event_alignment_analysis("tasmax")
+        print(f"Event detail saved to: {outputs['detail_path']}")
+        print(f"Event summary saved to: {outputs['summary_path']}")
+        print(f"Event notes saved to: {outputs['notes_path']}")
+        return 0
+
     if args.variable == "all":
         outputs = system.run_all_variables(
             allow_synthetic=not args.no_synthetic_fallback,

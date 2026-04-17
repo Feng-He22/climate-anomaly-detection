@@ -16,13 +16,26 @@ class ClimateDataLoader:
         self.config = config
         self.scalers: dict[str, StandardScaler] = {}
 
+    def _get_data_backend(self) -> str:
+        backend = getattr(self.config, "DATA_BACKEND", "standard")
+        if backend not in {"standard", "dask"}:
+            raise ValueError("DATA_BACKEND must be either 'standard' or 'dask'.")
+        return backend
+
     @staticmethod
-    def _open_dataset(file_path: Path) -> xr.Dataset:
+    def _is_dask_backed(data_array: xr.DataArray) -> bool:
+        module_name = type(data_array.data).__module__.lower()
+        return "dask" in module_name
+
+    @staticmethod
+    def _open_dataset(file_path: Path, *, chunks: Optional[dict[str, int]] = None) -> xr.Dataset:
         engines = (None, "h5netcdf", "scipy")
         errors: list[str] = []
 
         for engine in engines:
             kwargs = {} if engine is None else {"engine": engine}
+            if chunks is not None:
+                kwargs["chunks"] = chunks
             engine_name = engine or "default"
             try:
                 return xr.open_dataset(file_path, **kwargs)
@@ -31,15 +44,45 @@ class ClimateDataLoader:
 
         raise OSError(f"Unable to open {file_path.name}. Tried backends: {' | '.join(errors)}")
 
+    def _open_mfdataset(self, nc_files: list[Path], *, chunks: dict[str, int]) -> xr.Dataset:
+        engines = ("h5netcdf", None, "scipy")
+        errors: list[str] = []
+
+        for engine in engines:
+            kwargs = {
+                "combine": "by_coords",
+                "parallel": getattr(self.config, "DASK_PARALLEL", False),
+                "chunks": chunks,
+                "data_vars": "minimal",
+                "coords": "minimal",
+                "compat": "override",
+            }
+            if engine is not None:
+                kwargs["engine"] = engine
+            engine_name = engine or "default"
+            try:
+                return xr.open_mfdataset(nc_files, **kwargs)
+            except Exception as exc:  # pragma: no cover
+                errors.append(f"{engine_name}: {exc}")
+
+        raise OSError(f"Unable to load NetCDF files with Dask. Tried backends: {' | '.join(errors)}")
+
     def load_variable_dataset(self, variable_name: str) -> xr.Dataset:
         variable_path = self.config.get_variable_path(variable_name)
         nc_files = sorted(variable_path.glob("*.nc"))
+        backend = self._get_data_backend()
 
         if not nc_files:
             raise FileNotFoundError(f"No NetCDF files found in {variable_path}")
 
         if self.config.MAX_FILES_TO_LOAD is not None:
             nc_files = nc_files[: self.config.MAX_FILES_TO_LOAD]
+
+        if backend == "dask":
+            chunks = dict(getattr(self.config, "DASK_CHUNKS", {"time": 365}))
+            if len(nc_files) == 1:
+                return self._open_dataset(nc_files[0], chunks=chunks).sortby("time")
+            return self._open_mfdataset(nc_files, chunks=chunks).sortby("time")
 
         datasets: list[xr.Dataset] = []
         for file_path in nc_files:
@@ -118,6 +161,10 @@ class ClimateDataLoader:
         if spatial_dims:
             data_array = data_array.mean(dim=spatial_dims, skipna=True)
 
+        # Materialise lazily loaded arrays before converting to pandas.
+        if ClimateDataLoader._is_dask_backed(data_array):
+            data_array = data_array.compute()
+
         series = data_array.to_series()
         series.name = variable_name
         return series.sort_index()
@@ -178,22 +225,24 @@ class ClimateDataLoader:
         self,
         series: pd.Series,
         labels: Optional[pd.Series] = None,
+        sequence_length: Optional[int] = None,
     ) -> dict[str, np.ndarray | pd.Index | StandardScaler]:
         series = self.handle_missing_values(series).sort_index()
         raw_values = series.to_numpy(dtype=np.float32)
+        window_length = sequence_length or self.config.SEQUENCE_LENGTH
 
         scaler = StandardScaler()
         scaled_values = scaler.fit_transform(raw_values.reshape(-1, 1)).astype(np.float32).flatten()
         self.scalers[series.name or "series"] = scaler
 
-        windows = self.create_sequences(scaled_values, self.config.SEQUENCE_LENGTH)
-        dates = pd.Index(series.index[self.config.SEQUENCE_LENGTH - 1 :])
-        end_values = raw_values[self.config.SEQUENCE_LENGTH - 1 :]
+        windows = self.create_sequences(scaled_values, window_length)
+        dates = pd.Index(series.index[window_length - 1 :])
+        end_values = raw_values[window_length - 1 :]
 
         window_labels = None
         if labels is not None:
             aligned_labels = labels.reindex(series.index).fillna(0).astype(int).to_numpy()
-            window_labels = self.create_window_labels(aligned_labels, self.config.SEQUENCE_LENGTH)
+            window_labels = self.create_window_labels(aligned_labels, window_length)
 
         sample_count = len(windows)
         if sample_count < 8:
@@ -211,9 +260,9 @@ class ClimateDataLoader:
         val_slice = slice(train_count, train_count + validation_count)
         test_slice = slice(train_count + validation_count, sample_count)
 
-        X_train = windows[train_slice].reshape(-1, self.config.SEQUENCE_LENGTH, 1)
-        X_val = windows[val_slice].reshape(-1, self.config.SEQUENCE_LENGTH, 1)
-        X_test = windows[test_slice].reshape(-1, self.config.SEQUENCE_LENGTH, 1)
+        X_train = windows[train_slice].reshape(-1, window_length, 1)
+        X_val = windows[val_slice].reshape(-1, window_length, 1)
+        X_test = windows[test_slice].reshape(-1, window_length, 1)
 
         if len(X_val) == 0:
             raise ValueError("Validation split produced zero samples.")
@@ -229,6 +278,7 @@ class ClimateDataLoader:
             "val_dates": dates[val_slice],
             "test_dates": dates[test_slice],
             "scaler": scaler,
+            "sequence_length": window_length,
         }
 
         if window_labels is not None:

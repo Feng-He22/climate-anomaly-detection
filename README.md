@@ -6,145 +6,177 @@ This project detects anomalies in HadUK-Grid daily climate data for three variab
 - `tasmax`
 - `tasmin`
 
-The code reads raw NetCDF files, converts gridded data into unified time series, preprocesses the series, trains anomaly detection models, scores abnormal windows, and saves charts, metrics, and model files for each variable.
+The pipeline reads NetCDF files, aggregates gridded observations into a single daily series, prepares sliding windows, runs anomaly detectors, and saves metrics, figures, and model artifacts. It also includes two analysis extensions:
 
-## What The Code Does
+- a fairness-style ablation package on synthetic `tasmax` labels
+- an external event-window alignment analysis for real `tasmax` anomaly outputs
 
-The codebase provides these core functions:
+## Main Capabilities
 
-- Load raw climate data from `data/raw/hadukgrid_60km_last10y`
-- Extract one time series per variable from gridded NetCDF data
-- Aggregate spatial dimensions automatically
-- Fill missing values by interpolation and backfilling
-- Standardize the time series and build sliding-window sequences
-- Detect anomalies with `LSTM Autoencoder` using reconstruction error
-- Detect anomalies with `Isolation Forest` using flattened sequence features
-- Save separate outputs for `rainfall`, `tasmax`, and `tasmin`
-- Run one variable at a time or all supported variables in one pass
+- Load HadUK-Grid NetCDF files from `data/raw/hadukgrid_60km_last10y`
+- Aggregate spatial dimensions into a unified daily time series
+- Interpolate and backfill missing values before modeling
+- Build sliding windows for sequence-based anomaly detection
+- Run an `LSTM Autoencoder` and an `Isolation Forest`
+- Switch between standard loading and Dask-backed lazy loading
+- Export processed series, anomaly tables, plots, summaries, and saved models
+- Run single-variable analysis, all-variable batch analysis, fairness ablations, and event alignment reports
 
-## Processing Flow
+## Project Layout
 
-The execution flow is:
+- `config/config.py`: central configuration, directory paths, model settings, ablation settings, and event-alignment parameters
+- `src/data_loader.py`: NetCDF loading, Dask support, series extraction, label extraction, sequence preparation, and processed-data export
+- `models/lstm_autoencoder.py`: LSTM autoencoder model build, training, checkpointing, and anomaly scoring
+- `models/isolation_forest.py`: Isolation Forest training, anomaly scoring, and optional rolling plus seasonal feature construction
+- `src/anomaly_detector.py`: end-to-end pipeline orchestration, fairness ablations, event alignment, metrics writing, and aggregate summaries
+- `src/visualization.py`: time-series, training-history, anomaly, and metric-summary figures
+- `tests/`: unit tests for loaders, detectors, and event alignment logic
 
-1. Read the NetCDF files for the selected variable.
-2. Reduce spatial dimensions into a single time series.
-3. Clean missing values and save the processed series.
-4. Split the series into sliding windows.
-5. Train the LSTM Autoencoder and compute anomaly scores.
-6. Train the Isolation Forest and compute anomaly scores.
-7. Save anomaly results, summary files, metrics tables, and figures.
-8. When `all` is selected, repeat the same workflow for `rainfall`, `tasmax`, and `tasmin`, then write aggregate summary files.
+## Installation
 
-## Main Modules
+Create an environment and install dependencies:
 
-### `config/config.py`
+```bash
+pip install -r requirements.txt
+```
 
-Stores project paths, supported variables, output directories, and runtime configuration.
+## Command-Line Usage
 
-### `src/data_loader.py`
+Run the default `tasmax` pipeline:
 
-Handles data loading and preprocessing:
+```bash
+python main.py
+```
 
-- NetCDF file loading
-- Variable extraction
-- Spatial aggregation
-- Missing-value handling
-- Sequence construction
-- Train, validation, and test splitting
-- Processed-series export
+Run one variable explicitly:
 
-### `models/lstm_autoencoder.py`
+```bash
+python main.py --variable rainfall
+```
 
-Implements the LSTM Autoencoder:
+Run all supported variables:
 
-- Build encoder and decoder layers
-- Train the reconstruction model
-- Compute reconstruction errors
-- Produce anomaly labels and anomaly scores
-- Save trained model checkpoints
+```bash
+python main.py --variable all
+```
 
-### `models/isolation_forest.py`
+Use Dask-backed loading for larger NetCDF collections:
 
-Implements the Isolation Forest detector:
+```bash
+python main.py --variable tasmax --data-backend dask
+```
 
-- Flatten sequence windows into feature vectors
-- Train the tree-based detector
-- Produce anomaly predictions and scores
-- Save the fitted model and scaler
+Run only Isolation Forest and skip figure generation:
 
-### `src/visualization.py`
+```bash
+python main.py --variable tasmin --skip-lstm --no-plots
+```
 
-Generates result figures:
+Disable synthetic fallback if raw data are missing:
 
-- Raw time-series plots
-- LSTM training-history plots
-- Anomaly-detection plots
-- Metric summary plots
+```bash
+python main.py --variable tasmax --no-synthetic-fallback
+```
 
-### `src/anomaly_detector.py`
+Run the synthetic fairness ablation package for `tasmax`:
 
-Coordinates the full pipeline, including preprocessing, model execution, result saving, and multi-variable batch runs.
+```bash
+python main.py --run-fairness-ablation
+```
 
-### `main.py`
+Run external event-window alignment for `tasmax`:
 
-Provides the command-line entry point and supports:
+```bash
+python main.py --run-event-alignment
+```
 
-- Single-variable runs
-- All-variable runs
-- Optional LSTM skipping
-- Optional figure generation control
-- Optional synthetic fallback control
+## Data And Analysis Notes
+
+### Raw climate data
+
+Place HadUK-Grid NetCDF files under:
+
+- `data/raw/hadukgrid_60km_last10y/rainfall`
+- `data/raw/hadukgrid_60km_last10y/tasmax`
+- `data/raw/hadukgrid_60km_last10y/tasmin`
+
+### External event windows
+
+The event-alignment workflow expects a CSV such as:
+
+- `data/external/tasmax_event_windows.csv`
+
+The table should include event metadata and date windows, including fields such as:
+
+- `event_id`
+- `event_name`
+- `start_date`
+- `end_date`
+- `window_basis`
+- `source_org`
+- `source_title`
+- `source_url`
+- `label_strength`
+- `notes`
+
+These event windows are treated as weak-label references for evaluation summaries, not exact point-wise ground truth.
 
 ## Outputs
 
-### Processed Data
+### Processed data
 
-The pipeline writes processed series such as:
+Processed daily series are written to `data/processed/`, for example:
 
-- `data/processed/rainfall_series.csv`
-- `data/processed/tasmax_series.csv`
-- `data/processed/tasmin_series.csv`
+- `rainfall_series.csv`
+- `tasmax_series.csv`
+- `tasmin_series.csv`
+
+### Metrics and summaries
+
+Main pipeline runs write files such as:
+
+- `results/metrics/<variable>_anomaly_results.csv`
+- `results/metrics/<variable>_model_metrics.csv`
+- `results/metrics/<variable>_summary.txt`
+- `results/metrics/all_variables_model_metrics.csv`
+- `results/metrics/all_variables_summary.txt`
+
+Fairness ablation runs write:
+
+- `results/metrics/tasmax_fairness_window_sweep.csv`
+- `results/metrics/tasmax_fairness_if_feature_ablation.csv`
+- `results/metrics/tasmax_fairness_lstm_seed_runs.csv`
+- `results/metrics/tasmax_fairness_lstm_seed_summary.csv`
+- `results/metrics/tasmax_fairness_ablation_summary.txt`
+
+Event alignment writes:
+
+- `results/metrics/tasmax_event_alignment_by_event.csv`
+- `results/metrics/tasmax_event_alignment_summary.csv`
+- `results/metrics/tasmax_event_alignment_summary.txt`
 
 ### Figures
 
-For each variable, the pipeline generates:
+Figures are saved in `results/figures/`, including:
 
-- a time-series figure
-- a training-history figure
-- an LSTM anomaly-detection figure
+- time-series plots
+- training-history plots
+- anomaly-detection plots
+- metric-summary plots
 
-All figures are saved in `results/figures/`.
+### Saved models
 
-### Metrics And Summaries
-
-For each variable, the pipeline writes:
-
-- `<variable>_anomaly_results.csv`
-- `<variable>_model_metrics.csv`
-- `<variable>_summary.txt`
-
-When all variables are processed, it also writes:
-
-- `all_variables_model_metrics.csv`
-- `all_variables_summary.txt`
-
-These files are saved in `results/metrics/`.
-
-### Model Files
-
-For each variable, the pipeline saves:
+Model artifacts are saved in `results/models/`, including:
 
 - `<variable>_best_lstm_autoencoder.h5`
 - `<variable>_lstm_autoencoder.h5`
 - `<variable>_isolation_forest.pkl`
 
-These files are saved in `results/models/`.
+## Typical Workflow
 
-## Use Cases
-
-This code is suitable for:
-
-- climate time-series anomaly detection
-- rainfall and temperature anomaly screening
-- batch analysis of multiple climate variables
-- unsupervised anomaly scoring with visual outputs
+1. Place NetCDF files in the raw-data folders.
+2. Run `python main.py --variable tasmax` or `python main.py --variable all`.
+3. Inspect processed series in `data/processed/`.
+4. Review metrics and summaries in `results/metrics/`.
+5. Review figures in `results/figures/`.
+6. Optionally run `--run-fairness-ablation` or `--run-event-alignment` for additional analysis.

@@ -14,6 +14,7 @@ class AppConfig:
         self.RAW_DATA_DIR = self.DATA_DIR / "raw"
         self.PROCESSED_DATA_DIR = self.DATA_DIR / "processed"
         self.SYNTHETIC_DATA_DIR = self.DATA_DIR / "synthetic"
+        self.EXTERNAL_DATA_DIR = self.DATA_DIR / "external"
 
         self.RESULTS_DIR = self.PROJECT_ROOT / "results"
         self.FIGURES_DIR = self.RESULTS_DIR / "figures"
@@ -24,11 +25,17 @@ class AppConfig:
         self.DATASET_DIRNAME = "hadukgrid_60km_last10y"
         self.SUPPORTED_VARIABLES = ("rainfall", "tasmax", "tasmin")
         self.DEFAULT_VARIABLE = "tasmax"
+        self.DATA_BACKEND = "standard"
+        self.DASK_CHUNKS = {"time": 365}
+        self.DASK_PARALLEL = False
 
         self.SEQUENCE_LENGTH = 30
+        self.FAIRNESS_WINDOW_LENGTHS = (14, 30, 60)
         self.TEST_SIZE = 0.2
         self.VALIDATION_SPLIT = 0.2
         self.RANDOM_STATE = 42
+        self.LSTM_ABLATION_SEEDS = (42, 84, 126)
+        self.EVENT_ALIGNMENT_BUFFER_DAYS = 3
         self.MAX_FILES_TO_LOAD = None
 
         self.LSTM_UNITS = [128, 64, 64, 128]
@@ -48,6 +55,7 @@ class AppConfig:
         self.MAX_FEATURES = 1.0
         self.BOOTSTRAP = False
         self.N_JOBS = -1
+        self.IF_FEATURE_MODES = ("flatten_only", "flatten_rolling_seasonal")
 
     def ensure_directories(self) -> None:
         for directory in (
@@ -55,6 +63,7 @@ class AppConfig:
             self.RAW_DATA_DIR,
             self.PROCESSED_DATA_DIR,
             self.SYNTHETIC_DATA_DIR,
+            self.EXTERNAL_DATA_DIR,
             self.RESULTS_DIR,
             self.FIGURES_DIR,
             self.METRICS_DIR,

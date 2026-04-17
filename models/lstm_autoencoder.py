@@ -77,7 +77,14 @@ class LSTMAutoencoder:
         )
         return self.model
 
-    def train(self, X_train: np.ndarray, X_val: np.ndarray):
+    def train(
+        self,
+        X_train: np.ndarray,
+        X_val: np.ndarray,
+        *,
+        verbose: int = 1,
+        save_checkpoint: bool = True,
+    ):
         if self.model is None:
             self.build_model((X_train.shape[1], X_train.shape[2]))
 
@@ -87,22 +94,26 @@ class LSTMAutoencoder:
                 monitor="val_loss",
                 patience=self.config.EARLY_STOPPING_PATIENCE,
                 restore_best_weights=True,
-                verbose=1,
-            ),
-            layers["ModelCheckpoint"](
-                filepath=str(self.config.get_output_path("models", f"{self.output_prefix}_best_lstm_autoencoder.h5")),
-                monitor="val_loss",
-                save_best_only=True,
-                verbose=1,
+                verbose=verbose,
             ),
             layers["ReduceLROnPlateau"](
                 monitor="val_loss",
                 factor=0.5,
                 patience=max(2, self.config.EARLY_STOPPING_PATIENCE // 3),
                 min_lr=1e-6,
-                verbose=1,
+                verbose=verbose,
             ),
         ]
+        if save_checkpoint:
+            callbacks.insert(
+                1,
+                layers["ModelCheckpoint"](
+                    filepath=str(self.config.get_output_path("models", f"{self.output_prefix}_best_lstm_autoencoder.h5")),
+                    monitor="val_loss",
+                    save_best_only=True,
+                    verbose=verbose,
+                ),
+            )
 
         self.history = self.model.fit(
             X_train,
@@ -112,7 +123,7 @@ class LSTMAutoencoder:
             batch_size=self.config.BATCH_SIZE,
             callbacks=callbacks,
             shuffle=False,
-            verbose=1,
+            verbose=verbose,
         )
         return self.history
 
